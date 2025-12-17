@@ -1,0 +1,574 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout (rgba32f, binding = 0) uniform image2D accumImage;
+
+layout (binding = 4) uniform samplerCube starCube;
+
+uniform vec2 resolution;
+uniform vec3 camPos;
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+
+uniform vec3 bh_position;
+uniform float bh_rs;
+uniform float bh_rg;
+uniform float bh_spin;
+
+uniform sampler3D diskVolume;
+
+uniform float disk_rMin;
+uniform float disk_rMax;
+uniform float disk_zMin;
+uniform float disk_zMax;
+
+uniform int diskNR;
+uniform int diskNTheta;
+uniform int diskNZ;
+
+uniform float uTime;
+
+const float EPS = 1e-6;
+const float PI = 3.14159265359;
+const float R_MIN = 2.0 + 1e-4;
+const float R_ESCAPE = 200.0;
+const int MAX_STEPS = 700;
+
+// Schwarzschild metric geodesic integration via Dormand-Prince 5(4)
+struct GeoState {
+    vec4 x; // t, r, theta, phi
+    vec4 p; // pt, pr, ptheta, pphi
+};
+
+GeoState makeState(vec4 x, vec4 p) {
+    GeoState s;
+    s.x = x;
+    s.p = p;
+    return s;
+}
+
+GeoState geoAdd(GeoState a, GeoState b, float scale) {
+    GeoState r;
+    r.x = a.x + scale * b.x;
+    r.p = a.p + scale * b.p;
+    return r;
+}
+
+GeoState geoAdd2(GeoState a, GeoState b1, float s1, GeoState b2, float s2) {
+    GeoState r;
+    r.x = a.x + s1 * b1.x + s2 * b2.x;
+    r.p = a.p + s1 * b1.p + s2 * b2.p;
+    return r;
+}
+
+GeoState geoAdd3(GeoState a, GeoState b1, float s1,
+        GeoState b2, float s2, GeoState b3, float s3) {
+    GeoState r;
+    r.x = a.x + s1 * b1.x + s2 * b2.x + s3 * b3.x;
+    r.p = a.p + s1 * b1.p + s2 * b2.p + s3 * b3.p;
+    return r;
+}
+
+GeoState geoSub(GeoState a, GeoState b) {
+    GeoState r;
+    r.x = a.x - b.x;
+    r.p = a.p - b.p;
+    return r;
+}
+
+GeoState clampState(GeoState s) {
+    s.x.y = max(s.x.y, R_MIN);
+    
+    float theta = s.x.z;
+    if (theta < 0.0) {
+        theta = -theta;
+        s.p.z = -s.p.z;
+    }
+    if (theta > PI) {
+        theta = 2.0 * PI - theta;
+        s.p.z = -s.p.z;
+    }
+
+    float pLen = length(s.p.xyz);
+    float target = clamp(pLen, R_MIN, PI-EPS);
+    s.p.xyz *= target / max(pLen, 1e-6);
+    //s.x.z = clamp(theta, EPS, PI - EPS);
+
+    s.x.w = mod(s.x.w + PI, 2.0 * PI) - PI;
+    return s;
+}
+
+
+// Geodesic RHS using Christoffel symbols for Schwarzschild spacetime
+GeoState geodesic_rhs(GeoState y) {
+    float r = max(y.x.y, R_MIN);
+    float theta = y.x.z;
+    float phi = y.x.w;
+
+    float pt = y.p.x;
+    float pr = y.p.y;
+    float pth = y.p.z;
+    float pphi = y.p.w;
+
+    float thetaSafe = clamp(theta, 0.0001, PI - 0.0001); 
+
+    float sinTh = sin(thetaSafe);
+    float cosTh = cos(thetaSafe);
+    
+    float sinThSafe = max(abs(sinTh), EPS);
+    float sin2Th = 2.0 * sinThSafe * cosTh;
+    
+    float inv_r = 1.0 / r;
+    float rm2 = r - 2.0;
+    float inv_r_rm2 = 1.0 / (r * rm2);
+    float r3 = r * r * r;
+
+    vec4 dx;
+    dx.x = pt;
+    dx.y = pr;
+    dx.z = pth;
+    dx.w = pphi;
+
+
+    // t component
+    float Gamma_t_tr = inv_r_rm2;
+    float dpt = -2.0 * Gamma_t_tr * pt * pr;
+
+    // r component
+    float Gamma_r_tt   = rm2 / r3;
+    float Gamma_r_rr   = -inv_r_rm2;
+    float Gamma_r_thth = (2.0 - r);
+    float Gamma_r_phph = (2.0 - r) * sinThSafe * sinThSafe;
+
+    float dpr = -(
+          Gamma_r_tt   * pt   * pt
+        + Gamma_r_rr   * pr   * pr
+        + Gamma_r_thth * pth  * pth
+        + Gamma_r_phph * pphi * pphi
+    );
+
+    // theta component
+    float Gamma_th_rth  = inv_r;
+    float Gamma_th_phph = -0.5 * sin2Th;
+
+    float dpth = -(
+          2.0 * Gamma_th_rth * pr  * pth
+        + Gamma_th_phph      * pphi * pphi
+    );
+
+    // phi component
+    float Gamma_ph_rph = inv_r;
+    float cotTh = cosTh / sinThSafe;
+
+    float dpph = -(
+          2.0 * Gamma_ph_rph * pr  * pphi
+        + 2.0 * cotTh * pth * pphi
+    );
+    
+    float a = bh_spin;
+
+    float drag = 2.0 / r3;
+
+    dpph += a * drag * pt * pr;
+
+    vec4 dp = vec4(dpt, dpr, dpth, dpph);
+
+    return makeState(dx, dp);
+}
+
+void enforce_null_constraint(inout GeoState s) {
+    vec3 dir = normalize(s.p.xyz);
+
+    float E = length(s.p.xyz);
+
+    s.p.xyz = dir * E;
+}
+
+GeoState rk2_step(GeoState y, float h) {
+    GeoState k1 = geodesic_rhs(y);
+
+    // midpoint 
+    GeoState s_mid;
+    s_mid.x = y.x + 0.5 * h * k1.x;
+    s_mid.p = y.p + 0.5 * h * k1.p;
+
+    GeoState k2 = geodesic_rhs(s_mid);
+
+    y.x += h * k2.x;
+    y.p += h * k2.p;
+    return y;
+}
+
+GeoState dp54_step(GeoState y, float h, out float err) {
+    const float a21 = 1.0 / 5.0;
+    const float a31 = 3.0 / 40.0;
+    const float a32 = 9.0 / 40.0;
+
+    const float a41 = 44.0 / 45.0;
+    const float a42 = -56.0 / 15.0;
+    const float a43 = 32.0 / 9.0;
+
+    const float a51 = 19372.0 / 6561.0;
+    const float a52 = -25360.0 / 2187.0;
+    const float a53 = 64448.0 / 6561.0;
+    const float a54 = -212.0 / 729.0;
+
+    const float a61 = 9017.0 / 3168.0;
+    const float a62 = -355.0 / 33.0;
+    const float a63 = 46732.0 / 5247.0;
+    const float a64 = 49.0 / 176.0;
+    const float a65 = -5103.0 / 18656.0;
+
+    const float a71 = 35.0 / 384.0;
+    const float a72 = 0.0;
+    const float a73 = 500.0 / 1113.0;
+    const float a74 = 125.0 / 192.0;
+    const float a75 = -2187.0 / 6784.0;
+    const float a76 = 11.0 / 84.0;
+
+    const float b1 = 35.0 / 384.0;
+    const float b2 = 0.0;
+    const float b3 = 500.0 / 1113.0;
+    const float b4 = 125.0 / 192.0;
+    const float b5 = -2187.0 / 6784.0;
+    const float b6 = 11.0 / 84.0;
+    const float b7 = 0.0;
+
+    const float b1s = 5179.0 / 57600.0;
+    const float b2s = 0.0;
+    const float b3s = 7571.0 / 16695.0;
+    const float b4s = 393.0 / 640.0;
+    const float b5s = -92097.0 / 339200.0;
+    const float b6s = 187.0 / 2100.0;
+    const float b7s = 1.0 / 40.0;
+    
+    GeoState k1 = geodesic_rhs(y);
+
+    GeoState y2 = geoAdd(y, k1, h * a21);
+    GeoState k2 = geodesic_rhs(y2);
+
+    GeoState y3 = geoAdd2(y, k1, h * a31, k2, h * a32);
+    GeoState k3 = geodesic_rhs(y3);
+
+    GeoState y4 = geoAdd3(y, k1, h * a41, k2, h * a42, k3, h * a43);
+    GeoState k4 = geodesic_rhs(y4);
+
+    GeoState y5 = geoAdd3(y, k1, h * a51, k2, h * a52, k3, h * a53);
+    y5 = geoAdd(y5, k4, h * a54);
+    GeoState k5 = geodesic_rhs(y5);
+
+    GeoState y6 = geoAdd3(y, k1, h * a61, k2, h * a62, k3, h * a63);
+    y6 = geoAdd2(y6, k4, h * a64, k5, h * a65);
+    GeoState k6 = geodesic_rhs(y6);
+
+    GeoState y7 = geoAdd3(y, k1, h * a71, k3, h * a73, k4, h * a74);
+    y7 = geoAdd2(y7, k5, h * a75, k6, h * a76);
+    GeoState k7 = geodesic_rhs(y7);
+    
+    // 5th order solution - return value
+    GeoState y5th = y;
+    y5th.x += h * (b1 * k1.x + b2 * k2.x + b3 * k3.x + b4 * k4.x + b5 * 
+            k5.x + b6 * k6.x + b7 * k7.x);
+    y5th.p += h * (b1 * k1.p + b2 * k2.p + b3 * k3.p + b4 * k4.p + b5 *
+            k5.p + b6 * k6.p + b7 * k7.p);
+
+    // 4th order solution - for error estimate
+    GeoState y4th = y;
+    y4th.x += h * (b1s * k1.x + b2s * k2.x + b3s * k3.x + b4s * k4.x + b5s * 
+            k5.x + b6s * k6.x + b7s * k7.x);
+    y4th.p += h * (b1s * k1.p + b2s * k2.p + b3s * k3.p + b4s * k4.p + b5s *
+            k5.p + b6s * k6.p + b7s * k7.p);
+
+    y5th = clampState(y5th);
+    y4th = clampState(y4th);
+
+    vec4 dxErr = abs(y5th.x - y4th.x);
+    vec4 dpErr = abs(y5th.p - y4th.p);
+
+    err = max(
+            max(max(dxErr.x, dxErr.y), max(dxErr.z, dxErr.w)),
+            max(max(dpErr.x, dpErr.y), max(dpErr.z, dpErr.w))
+    );
+
+    return y5th;
+}
+
+// convert schwarzschild coordinates to cartesian
+vec3 sphToCart(float r, float theta, float phi) {
+    float sinTh = sin(theta);
+    float cosTh = cos(theta);
+    float sinPh = sin(phi);
+    float cosPh = cos(phi);
+
+    return vec3(
+            r * sinTh * cosPh,
+            r * cosTh,
+            r * sinTh * sinPh
+    );
+}
+
+float noise(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+void sampleDiskVolume(vec3 posWorld, float ds,
+                      inout vec3 accumColour,
+                      inout float accumAlpha,
+                      inout bool hitDisk)
+{
+    vec3 rel = posWorld - bh_position;
+    float r = length(rel.xz);
+    float y = rel.y;
+    float theta = atan(rel.z, rel.x);
+    theta = fract(theta / (2.0 * PI) + 0.5);
+
+    if (r < disk_rMin || r > disk_rMax || abs(y) > disk_zMax * 2.5)
+        return;
+    hitDisk = true;
+
+    vec3 uvw = vec3(
+        theta, 
+        (r - disk_rMin) / (disk_rMax - disk_rMin),
+        (y - disk_zMin) / (disk_zMax - disk_zMin)
+    );
+    vec4 d = texture(diskVolume, uvw);
+    float density = d.r;
+    float temp = d.g;
+
+    vec3 diskColourCold = vec3(1.0, 0.4, 0.1);
+    vec3 diskColourHot  = vec3(1.0, 1.0, 0.95);
+    vec3 baseColour = mix(diskColourCold, diskColourHot, temp);
+
+    vec3 tangential = normalize(vec3(-rel.z, 0.0, rel.x));
+    float orbitalSpeed = sqrt(1.0 / (r + 1e-4));
+    vec3 vel = tangential * orbitalSpeed;
+
+    float beta = dot(vel, normalize(-camPos + posWorld));
+    float gamma = 1.0 / sqrt(1.0 - dot(vel, vel));
+    float delta = 1.0 / (gamma * (1.0 - beta));
+    delta = clamp(delta, 0.5, 2.0);
+
+    float dopplerStrength = 7.0;
+    float brightness = pow(delta, dopplerStrength);
+    vec3 colourShift = vec3(1.0 / delta, 1.0, delta);
+    baseColour *= colourShift * brightness;
+
+    float shadowWidth = 0.1;
+    float shadowStrength = 0.9;
+    float shadowFalloff = smoothstep(shadowWidth, 0.0, abs(y / disk_zMax));
+    float shadowFactor = 1.0 - shadowStrength * shadowFalloff;
+    baseColour *= shadowFactor;
+
+    float heightAtten = exp(-pow(abs(y) / (disk_zMax * 0.7), 2.5));
+    float equatorialDark = exp(-pow(abs(y) / (disk_zMax * 0.25), 3.0));
+    float verticalMix = mix(heightAtten, equatorialDark, 0.7);
+    baseColour *= mix(0.2, 1.0, verticalMix);
+
+    float halo = exp(-pow(abs(y) / (disk_zMax * 2.5), 3.0));
+    vec3 haloColour = baseColour * 0.3 * halo;
+    float corona = exp(-pow(abs(y) / (disk_zMax * 4.0), 2.0)) * 0.5;
+    vec3 coronaColour = baseColour * vec3(1.2, 0.9, 0.7) * corona;
+
+    float emissiveStrength = mix(3.0, 15.0, temp);
+    float absorption = exp(-density * ds * 6.0); 
+    vec3 emitted = (baseColour * emissiveStrength * density + haloColour + coronaColour) * ds;
+
+    accumColour += emitted * (1.0 - absorption) * (1.0 - accumAlpha);
+    accumAlpha += (1.0 - absorption) * (1.0 - accumAlpha);
+    accumColour = clamp(accumColour, 0.0, 20.0);
+}
+
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+    // return if pixel out of bounds
+    if (pixel.x >= int(resolution.x) || pixel.y >= int(resolution.y))
+        return;
+
+    // normalize device coordinates
+    vec2 uv = (vec2(pixel) + 0.5) / resolution * 2.0 - 1.0;
+    float aspect = resolution.x / resolution.y;
+    uv.x *= aspect;
+
+    // camera ray
+    vec3 rayDir = normalize(camForward +
+            uv.x * camRight +
+            uv.y * camUp
+    );
+    
+    // camera position relative to BH
+    vec3 rel = camPos - bh_position;
+    float r0 = length(rel);
+
+    vec3 toBH = normalize(bh_position - camPos);
+    float cosAng = dot(rayDir, toBH);
+    cosAng = clamp(cosAng, -1.0, 1.0);
+    
+    float sin2 = max(0.0, 1.0 - cosAng * cosAng);
+    float b2 = r0 * r0 * sin2;
+
+    float bCrit = 2.598 * bh_rs;
+    float bCrit2 = bCrit * bCrit;
+    bool inShadow = (b2 < bCrit2 * 1.01);
+    
+    // camera is inside the event horizon
+    if (r0 < 2.5) {
+        imageStore(accumImage, pixel, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+    
+    float thetaBH = acos(dot(rayDir, toBH));
+    float cosThetaCut = cos(radians(20.0));
+    if (thetaBH > cosThetaCut) {
+        vec3 bgColour = texture(starCube, rayDir).rgb;
+        imageStore(accumImage, pixel, vec4(bgColour, 1.0));
+        return;
+    }
+
+    // spherical coordinates
+    float theta0 = acos(clamp(rel.y / r0, -1.0, 1.0));
+    float phi0 = atan(rel.z, rel.x);
+
+    vec3 e_r = rel / r0;
+    
+    float sinTh0 = sin(theta0);
+    float cosTh0 = cos(theta0);
+    float sinPh0 = sin(phi0);
+    float cosPh0 = cos(phi0);
+
+    vec3 e_theta = normalize(vec3(
+            cosTh0 * cosPh0,
+            -sinTh0,
+            cosTh0 * sinPh0
+    ));
+
+    vec3 e_phi = normalize(vec3(
+            -sinPh0,
+            0.0,
+            cosPh0
+    ));
+    
+    // ray direction in local orthonormal triad
+    float vr = dot(rayDir, e_r);
+    float vth = dot(rayDir, e_theta);
+    float vph = dot(rayDir, e_phi);
+
+    vec3 v = normalize(vec3(vr, vth, vph));
+    vr = v.x; vth = v.y; vph = v.z;
+    
+    float f0 = max(1.0 - 2.0 / r0, EPS);
+    float sqrtF0 = sqrt(f0);
+
+    float pt = 1.0 / sqrtF0;
+    float pr = vr * sqrtF0;
+    float pth = vth / r0;
+    
+    float sinTh0Safe = max(abs(sinTh0), 0.01);
+    float pphi = vph / (r0 * sinTh0Safe);
+
+    // initial state
+    vec4 x0 = vec4(0.0, r0, theta0, phi0);
+    vec4 p0 = vec4(pt, pr, pth/*p_mu*/, pphi);
+
+    GeoState s = makeState(x0, p0);
+        
+    // parameters for integration
+    float h = 0.2;
+    const float tol = 1e-4;
+    const float hMin = 1e-4;
+    const float hMax = 1.0;
+
+    vec3 finalColour = vec3(0.0);
+    bool hitBH = false;
+    bool hitDisk = false;
+    bool escaped = false;
+    
+    vec3 accumColour = vec3(0.0);
+    float accumAlpha = 0.0;
+
+    const float ds_vol = 0.015;
+    float accumDist = 0.0;
+
+    vec3 prevPosBH = sphToCart(r0, theta0,  phi0);
+    float r, theta, phi;
+    
+    for (int i = 0; i < MAX_STEPS; ++i) {
+
+        //float err;
+        //GeoState sNext = dp54_step(s, h, err);
+       GeoState sNext = rk2_step(s, h); 
+       enforce_null_constraint(sNext);
+       //if (err > EPS) {
+       //p     float safety = 0.85;
+       //     float scale = safety * pow(tol / max(err, EPS), 0.2);
+       //     scale = clamp(scale, 0.2, 4.0);
+       //     float hNew = clamp(h * scale, hMin, hMax);
+            
+            // reject step and try again smaller
+       //     if (err > tol && h > hMin) {
+       //         h = hNew;
+       //         continue;
+       //     }
+
+       //     h = hNew;
+       // }
+        
+        // accept step
+        s = sNext;
+        
+        r = s.x.y;
+        theta = s.x.z;
+        phi = s.x.w;
+        
+        if ( r < 12.0) h = min(h, 0.1);
+        if ( r < 8.0)  h = min(h, 0.05);
+        if ( r < 5.0)  h = min(h, 0.025);
+        if ( r < 3.0)  h = min(h, 0.0125);
+
+        vec3 posBH = sphToCart(r, theta, phi);
+        vec3 posWorld = posBH + bh_position;
+
+        //float ds = length(posBH - prevPosBH);
+        float ds = length(s.x.xyz - prevPosBH);
+        prevPosBH = posBH;
+        
+        accumDist += ds;
+        if (accumDist >= ds_vol) {
+            sampleDiskVolume(posWorld, ds_vol, accumColour, accumAlpha, hitDisk);
+            accumDist = 0.0;
+        }
+        
+        // black hole collision
+        float photonSphere = 1.5 * bh_rs;
+
+        if (r < photonSphere + 0.003){ 
+            hitBH = true;
+            break;
+        }
+
+        // escape condition
+        if (r > R_ESCAPE ) {
+            escaped = true;
+            break;
+        }
+    }
+    
+    vec3 escapePos = sphToCart(r, theta, phi) + bh_position;
+    vec3 escapeDir = normalize(escapePos - bh_position);
+        
+    vec3 starColour = texture(starCube, escapeDir).rgb;
+
+    if (hitBH) {       
+        finalColour = hitDisk ? accumColour : vec3(0.0);
+    } else if (hitDisk) {
+        finalColour = accumColour + (1.0 - accumAlpha) * starColour;
+    } else {
+        finalColour = starColour;
+    }
+    
+    imageStore(accumImage, pixel, vec4(finalColour, 1.0));
+}
