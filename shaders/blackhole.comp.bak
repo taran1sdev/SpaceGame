@@ -1,0 +1,140 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8) in;
+layout (rgba32f, binding = 0) uniform image2D accumImage;
+layout (binding = 4) uniform samplerCube starCube;
+layout (binding = 5) uniform sampler3D diskVolume;
+
+uniform vec2 resolution;
+uniform vec3 camPos;
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+
+uniform vec3 bh_position;
+uniform float bh_rs;
+uniform float bh_rg;
+uniform float bh_spin;
+
+uniform float disk_rMin;
+uniform float disk_rMax;
+uniform float disk_zMin;
+uniform float disk_zMax;
+
+uniform int diskNR;
+uniform int diskNTheta;
+uniform int diskNZ;
+
+uniform float uTime;
+
+
+vec3 sampleStars(vec3 dir)
+{
+    return texture(starCube, dir).rgb;
+}
+
+vec3 sampleDisk(vec3 pos, out float alpha)
+{
+    alpha = 0.0;
+
+    float r = length(pos.xz);
+    if (r < disk_rMin || r > disk_rMax) return vec3(0.0);
+    if (pos.y < disk_zMin || pos.y > disk_zMax) return vec3(0.0);
+
+    float theta = atan(pos.z, pos.x);
+    vec3 uvw = vec3(
+        theta / (2.0 * 3.14159265) + 0.5,
+        (r - disk_rMin) / (disk_rMax - disk_rMin),
+        (pos.y - disk_zMin) / (disk_zMax - disk_zMin)
+    );
+
+    float density = texture(diskVolume, uvw).r;
+    alpha = density;
+
+    vec3 cold = vec3(1.0, 0.4, 0.1);
+    vec3 hot  = vec3(1.0, 1.0, 0.95);
+    float t = clamp(disk_rMin / r, 0.0, 1.0);
+
+    return mix(cold, hot, t) * density;
+}
+
+
+void main()
+{
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (pix.x >= int(resolution.x) || pix.y >= int(resolution.y)) return;
+
+    vec2 uv = (vec2(pix) + 0.5) / resolution * 2.0 - 1.0;
+    uv.x *= resolution.x / resolution.y;
+
+    vec3 rayDir = normalize(
+        camForward +
+        uv.x * camRight +
+        uv.y * camUp
+    );
+
+    vec3 rayOrg = camPos;
+    vec3 toBH = bh_position - rayOrg;
+
+    float tClosest = dot(toBH, rayDir);
+    vec3 pClosest = rayOrg + rayDir * tClosest;
+    float b = length(pClosest - bh_position);
+
+    if (tClosest > 0.0 && b < bh_rs)
+    {
+        imageStore(accumImage, pix, vec4(0.0));
+        return;
+    }
+
+    vec3 colour = vec3(0.0);
+
+
+    float photonRadius = 1.5 * bh_rs;
+    float ringWidth = 0.02 * bh_rs;
+    float ring = exp(-pow((b - photonRadius) / ringWidth, 2.0));
+    colour += ring * vec3(1.15, 1.1, 1.0);
+
+
+    if (abs(rayDir.y) > 1e-4)
+    {
+        float t0 = (disk_zMin - rayOrg.y) / rayDir.y;
+        float t1 = (disk_zMax - rayOrg.y) / rayDir.y;
+
+        float tEnter = min(t0, t1);
+        float tExit  = max(t0, t1);
+
+        if (tExit > max(tEnter, 0.0))
+        {
+            tEnter = max(tEnter, 0.0);
+
+            const int STEPS = 12;
+            float dt = (tExit - tEnter) / float(STEPS);
+
+            float trans = 1.0;
+
+            for (int i = 0; i < STEPS; i++)
+            {
+                vec3 p = rayOrg + rayDir * (tEnter + (float(i) + 0.5) * dt);
+                vec3 local = p - bh_position;
+
+                if (length(local) < bh_rs)
+                    break;
+
+                float alpha;
+                vec3 c = sampleDisk(local, alpha);
+
+                float a = alpha * 0.15;
+                colour += c * a * trans;
+                trans *= (1.0 - a);
+
+                if (trans < 0.01)
+                    break;
+            }
+        }
+    }
+
+    colour += sampleStars(rayDir);
+
+    imageStore(accumImage, pix, vec4(colour, 1.0));
+}
+
