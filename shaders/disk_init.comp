@@ -55,11 +55,19 @@ void main() {
     ivec3 size = imageSize(diskVolume);
     if (any(greaterThanEqual(gid, size))) return;
 
-    vec3 uvw = (vec3(gid) + 0.5) / vec3(size);
+    // Keep r,z at texel centers
+    float ur = (float(gid.y) + 0.5) / float(size.y);
+    float uz = (float(gid.z) + 0.5) / float(size.z);
 
-    float theta = uvw.x * 2.0 * PI - PI;
-    float r = mix(rMin, rMax, uvw.y);
-    float y = mix(zMin, zMax, uvw.z);
+    // Make theta periodic: last slice duplicates first slice
+    int tx = gid.x;
+    int txWrapped = (tx == size.x - 1) ? 0 : tx;
+    float uTheta = float(txWrapped) / float(size.x - 1);   // [0..1], periodic
+    float theta = uTheta * 2.0 * PI - PI;
+
+
+    float r = mix(rMin, rMax, ur);
+    float y = mix(zMin, zMax, uz);
 
     float H = abs(y);
     float halfThickness = (zMax - zMin) * 0.5;
