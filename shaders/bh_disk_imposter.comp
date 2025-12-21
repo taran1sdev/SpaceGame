@@ -37,6 +37,22 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+bool raySphere(vec3 ro, vec3 rd, vec3 c, float r, out float tHit)
+{
+    vec3 oc = ro - c;
+    float b = dot(oc, rd);
+    float c2 = dot(oc, oc) - r * r;
+    float h = b * b - c2;
+    if (h < 0.0) return false;
+
+    float s = sqrt(h);
+    float t0 = -b - s;
+    float t1 = -b + s;
+
+    tHit = (t0 > 0.0) ? t0 : t1;
+    return tHit > 0.0;
+}
+
 vec3 diskShading(vec3 relBH, vec3 viewDir)
 {
     float r = length(relBH.xz);
@@ -121,13 +137,33 @@ void main()
             vec3 hitWorld = rayOrg + rayDir * t;
             vec3 relBH = hitWorld - bh_position;
             
-            float diskDepth = dot(hitWorld - rayOrg, rayDir);
-            float bhDepth   = dot(bh_position - rayOrg, rayDir);
+            float rBH = length(relBH.xz);
 
-            float frontMask = diskDepth < bhDepth * 1.05 ? 1.0 : 0.0;
+            float tDisk = t;
+            float tBH;
+            bool hitBH = raySphere(rayOrg, rayDir, bh_position, horizonRadius, tBH);
+
+            if (hitBH && tBH < tDisk)
+            {   
+                imageStore(diskOverlay, px, vec4(0.0));
+                return;
+            }
+            
+            float aspect = resolution.x / resolution.y;
+            vec2 d = (uv - bh_screenPos);
+            d.x *= aspect;
+
+            float r = length(relBH.xz); 
+            
+            if (r < disk_rMin) {
+                imageStore(diskOverlay, px, vec4(0.0));
+                return;
+            }
+
+            float innerFeather = disk_rMin * 0.05; // tweak: 0.01–0.05
+            float innerMask = smoothstep(disk_rMin, disk_rMin + innerFeather, r);
 
 
-            float r = length(relBH.xz);
             if (r >= disk_rMin && r <= disk_rMax) {
                 int taps = int(clamp(disk_thicknessTaps, 1.0, 16.0));
                 float rnd = hash12(vec2(px));
@@ -162,7 +198,7 @@ void main()
                     if (accumA > 0.99) break;
                 }
 
-                outRGBA = vec4(accum, frontMask * accumA);
+                outRGBA = vec4(accum, accumA * innerMask);
             }
         }
     }

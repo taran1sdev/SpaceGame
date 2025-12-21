@@ -34,8 +34,8 @@ class Renderer {
         GLuint diskVolumeTexture = 0;
         
         GLuint sceneColourTex = 0;
-        GLuint diskOverlayNearTex = 0;
-        GLuint diskOverlayFarTex = 0;
+        GLuint diskOverlayTop = 0;
+        GLuint diskOverlayBottom = 0;
         GLuint bhLensedTex = 0;
 
         // Accretion Disk Dimensions (We should refactor this away later)
