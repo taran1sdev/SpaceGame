@@ -39,18 +39,18 @@ void main() {
     vec3 flareColour = vec3(0.3, 0.5, 1.0) * flare * dot(bloom, vec3(0.333));
 
     vec2 centered = vUV * 2.0 - 1.0;
-    float vignette = 1.0 - (centered.x * centered.x + centered.y * centered.y * ASPECT_RATIO * ASPECT_RATIO) * 0.4;
-    vignette = clamp(vignette, 0.0, 1.0);
+    //float vignette = 1.0 - (centered.x * centered.x + centered.y * centered.y * ASPECT_RATIO * ASPECT_RATIO) * 0.4;
+    //vignette = clamp(vignette, 0.0, 1.0);
 
     float grain = (fract(sin(dot(vUV * 0.5 + vec2(0.07, 0.13), vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.02;
 
     colour = colour + bloom + flareColour;
-    colour *= vignette;
+    //colour *= vignette;
     colour += grain;
 
     colour = toneMapACES(colour * 1.65);  
     colour = pow(colour, vec3(1.0 / 2.2));
 
     FragColour = vec4(colour, 1.0);
+    
 }
-

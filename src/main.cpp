@@ -31,6 +31,11 @@ void mouseCallback(GLFWwindow* window, double x, double y) {
 void framebufferCallback(GLFWwindow* window, int w, int h)
 {
     glViewport(0, 0, w, h);
+
+    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(window));
+    if (cam && h > 0) {
+        cam->aspect = static_cast<float>(w) / static_cast<float>(h);
+    }
 }
 
 int main() {
@@ -56,6 +61,8 @@ int main() {
     glfwSetCursorPosCallback(window, mouseCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     
+    glfwSetWindowUserPointer(window, &camera);
+
     glfwSetFramebufferSizeCallback(window, framebufferCallback);  
     // Use glad to load OpenGL
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -64,8 +71,7 @@ int main() {
     }
     
     BlackHole bH(glm::vec3(0.0f));
-    Shader shader("../shaders/fullscreen.vert", "../shaders/fullscreen.frag");
-    Renderer renderer(shader, camera, bH);
+    Renderer renderer(camera, bH);
     renderer.init();
 
     while (!glfwWindowShouldClose(window)) {
@@ -85,7 +91,6 @@ int main() {
         glfwPollEvents();
     }
     
-    shader.destroy();
     glfwTerminate();
     return 0;
 }

@@ -14,8 +14,11 @@ class Shader {
         explicit Shader(const std::string& computePath);
 
         // functions to set uniform 
+        void setMat4(const std::string& name, const glm::mat4& mat) const;
+
         void setVec2(const std::string& name, float x, float y) const;
-        
+        void setVec2(const std::string& name, const glm::vec2& value) const;
+
         void setVec3(const std::string& name, const glm::vec3& value) const;
         
         void setFloat(const std::string& name, float val) const;

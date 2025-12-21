@@ -31,6 +31,7 @@ uniform int diskNZ;
 uniform float uTime;
 
 const float PI = 3.1415926535;
+const float photonSphereRadius = 3.0;
 
 float noise(vec2 p) {
     return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453123);
@@ -49,8 +50,9 @@ void sampleDiskVolume(vec3 posWorld, float ds,
     float u = theta * (0.5 / PI) + 0.5;
     float uWrap = fract(u);
 
-    if (r < disk_rMin || r > disk_rMax || abs(y) > disk_zMax * 2.5)
+    if (r < disk_rMin || r > disk_rMax || abs(y) > disk_zMax)
         return;
+
     hitDisk = true;
     
     float ur = (r - disk_rMin) / (disk_rMax - disk_rMin);
@@ -114,6 +116,65 @@ vec3 rotateAroundAxis(vec3 v, vec3 axis, float angle) {
     return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
 }
 
+bool intersectCylinder(
+        vec3 origin, vec3 dir,
+        float rMin, float rMax, float zHalf,
+        out float tEnter,
+        out float tExit) {
+    //if (dot(dir.xz, dir.xz) < 1e-6)
+    //{
+    //    float r = length(origin.xz);
+    //    if (r < rMin || r > rMax) return false;
+
+    //    float ty0 = (-zHalf - origin.y) / dir.y;
+    //    float ty1 = ( zHalf - origin.y) / dir.y;
+    //    tEnter = min(ty0, ty1);
+    //    tExit  = max(ty0, ty1);
+    //    return tExit > max(tEnter, 0.0);
+    //}
+
+    vec2 o = origin.xz;
+    vec2 d = dir.xz;
+
+    float a = dot(d, d);
+    float b = 2.0 * dot(o, d);
+    float cOuter = dot(o, o) - rMax * rMax;
+    float cInner = dot(o, o) - rMin * rMin;
+
+    float diskOuter = b*b - 4.0*a*cOuter;
+    if (diskOuter < 0.0) return false;
+
+    float sqrtOuter = sqrt(diskOuter);
+    float t0 = (-b - sqrtOuter) / (2.0 * a);
+    float t1 = (-b + sqrtOuter) / (2.0 * a);
+
+    if (t1 < 0.0) return false;
+
+    tEnter = max(t0, 0.0);
+    tExit = t1;
+
+    float y0 = origin.y + tEnter * dir.y;
+    float y1 = origin.y + tExit * dir.y;
+
+    float yMin = -zHalf;
+    float yMax = zHalf;
+
+    if (max(y0, y1) < yMin || min(y0, y1) > yMax) return false;
+
+    vec3 pEnter = origin + tEnter * dir;
+    if (length(pEnter.xz) < rMin) {
+        float diskInner = b*b - 4.0 * a * cInner;
+        if (diskInner < 0.0) return false;
+
+        float sqrtInner = sqrt(diskInner);
+        float tInnerExit = (-b + sqrtInner) / (2.0 * a);
+        tEnter = max(tInnerExit, tEnter);
+    }
+
+    return tEnter < tExit;
+}
+
+
 bool intersectCylinderY(vec3 o, vec3 d, float R, out float tEnter, out float tExit) {
     float a = d.x*d.x + d.z*d.z;
     float b = 2.0 * (o.x*d.x + o.z*d.z);
@@ -140,9 +201,14 @@ bool intersectSphere(vec3 o, vec3 d, float R, out float tHit) {
     float h = b*b - c;
     
     if (h < 0.0) return false;
+    
     h = sqrt(h);
-    tHit = -b - h;
-    return tHit > 0.0;
+    float t0 = -b - h;
+    float t1 = -b + h;
+
+    if (t1 < 0.0) return false;
+    tHit = (t0 > 0.0) ? t0 : t1;
+    return true;
 }
 
 void main() {
@@ -168,7 +234,7 @@ void main() {
 
     float lensOuter = 40.0 * bh_rs;                          
     float lensInner = 3.0  * bh_rs;                         
-    float lensFade  = smoothstep(lensOuter, lensInner, b);
+    float lensFade  = smoothstep(1.7, 6.0, length(rayOrg - bh_position) / 3.0);
 
     vec3 axis = normalize(cross(rayDir, dVec));
     if (length(axis) < 1e-6) axis = normalize(cross(rayDir, vec3(0.0, 1.0, 0.0)));
@@ -178,13 +244,11 @@ void main() {
     vec3 rayDirLensed = rotateAroundAxis(rayDir, axis, angle * lensFade);
 
     float bCrit = 2.6 * bh_rs;
-    float ringW = 0.15 * bh_rs;
+    float ringW = 0.05 * bh_rs;
     float ring = exp(-pow((b - bCrit) / max(ringW, 1e-3), 2.0)) * lensFade;
     vec3 ringColour = vec3(1.0, 0.9, 0.7) * (3.0 * ring);
 
     vec3 starColour = texture(starCube, rayDirLensed).rgb;
-
-    if (inShadow) starColour = vec3(0.0);
 
     vec3 accumColour = vec3(0.0);
     float accumAlpha = 0.0;
@@ -193,22 +257,31 @@ void main() {
     vec3 o = rayOrg - bh_position;
     vec3 d = rayDirLensed;
 
-    float tCylEnter, tCylExit;
-    bool hitOuter = intersectCylinderY(o, d, disk_rMax, tCylEnter, tCylExit);
-
-    float yMax = disk_zMax * 2.5;
-    float tY0 = (-yMax - o.y) / d.y;
-    float tY1 = ( yMax - o.y) / d.y;
-    float tYEnter = min(tY0, tY1);
-    float tYExit  = max(tY0, tY1);
-
-    float tEnter = 0.0;
-    float tExit  = 0.0;
+    float tDiskEnter, tDiskExit;
+    bool hitOuter = intersectCylinder
+        (o, d, 
+         disk_rMin, disk_rMax, disk_zMax,
+         tDiskEnter, tDiskExit);
+    
+    float tHorizon;
+    bool hitHorizon = intersectSphere(o, d, bh_rs, tHorizon);
+    
+    if (inShadow) starColour = vec3(0.0);
 
     if (hitOuter)
     {
-        tEnter = max(tCylEnter, tYEnter);
-        tExit  = min(tCylExit,  tYExit);
+        float tEnter = tDiskEnter;
+        float tExit  = tDiskExit;
+                
+        float yMax = disk_zMax;
+        if (abs(d.y) > 1e-8) {
+            float tY0 = (-yMax - o.y) / d.y;
+            float tY1 = ( yMax - o.y) / d.y;
+            float tYEnter = min(tY0, tY1);
+            float tYExit  = max(tY0, tY1);
+            tEnter = max(tEnter, tYEnter);
+            tExit = min(tExit, tYExit);
+        }
 
         if (tExit > max(tEnter, 0.0))
         {
@@ -230,6 +303,9 @@ void main() {
     vec3 finalColour = accumColour + (1.0 - accumAlpha) * starColour + ringColour;
 
     if (inShadow && !hitDisk) finalColour = vec3(0.0);
+    if (inShadow && (hitDisk && accumAlpha < 0.01)) finalColour = vec3(0.0);
+    //if (hitHorizon && accumAlpha < 0.01 && (!hitOuter || tHorizon < tEnter))
+    //    finalColour = vec3(0.0);
 
     imageStore(accumImage, pixel, vec4(finalColour, 1.0));
 }

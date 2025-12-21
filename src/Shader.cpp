@@ -1,5 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+
+#include <glm/gtc/type_ptr.hpp>
 #include "Shader.hpp"
 #include <fstream>
 #include <sstream>
@@ -63,9 +65,19 @@ void Shader::destroy() {
    glDeleteProgram(ID);   
 }
 
+void Shader::setMat4(const std::string& name, const glm::mat4& mat) const {
+    int loc = glGetUniformLocation(ID, name.c_str());
+    glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(mat));    
+}
+
 void Shader::setVec2(const std::string& name, float x, float y) const {
     int loc = glGetUniformLocation(ID, name.c_str());
     glUniform2f(loc, x, y);
+}
+
+void Shader::setVec2(const std::string& name, const glm::vec2& value) const {
+    int loc = glGetUniformLocation(ID, name.c_str());
+    glUniform2f(loc, value.x, value.y);
 }
 
 void Shader::setVec3(const std::string& name, const glm::vec3& value) const {

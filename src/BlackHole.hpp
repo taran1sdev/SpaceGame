@@ -1,16 +1,26 @@
 #pragma once
 #include <glm/glm.hpp>
 
+class Camera;
+
 class BlackHole {
     public:
-        explicit BlackHole(const glm::vec3& position = glm::vec3(0.0f), float spin = 0.4f);
-
-        glm::vec3 getPosition() const;
-        float getSchildRadius() const;
-        float getGravRadius() const;
+        BlackHole(const glm::vec3& pos);
         
-        void uploadToShader(class Shader& computeShader) const;
-    private:
+        // world pos / radius
         glm::vec3 position;
-        float spin;
+        float rs;
+        
+        // screen pos / radius
+        glm::vec2 screenUV;
+        float horizonRadius;
+        
+        // might not need this function anymore
+        glm::vec3 getPosition() const;
+        
+        // updates screen pos 
+        void updateScreenSpace(const Camera& cam, int w, int h);
+        
+        // Communicate with GPU
+        void uploadToShader(class Shader& computeShader) const;
 };

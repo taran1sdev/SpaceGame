@@ -1,43 +1,55 @@
 #pragma once
+#include <glm/glm.hpp>
+
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "BlackHole.hpp"
 #include "FullscreenQuad.hpp"
+#include "Mesh.hpp"
 
 class Renderer {
     public:
-        Renderer(Shader& screenShader, Camera& cam, BlackHole& blackHole);
+        // This is the constructor we will use
+        Renderer(Camera& cam, BlackHole& bh);
+        ~Renderer();
         void init();
         void render();
-    
     private:
-        Shader& screenShader;
         Camera& camera;
         BlackHole& blackHole;
 
-        Shader computeShader;
+        Shader diskImposterShader;
         Shader diskVolumeShader;
-        FullscreenQuad quad;
+        Shader bhLensPostShader;
         
+        Shader fullscreenShader;
+        FullscreenQuad fullscreenQuad;
+
+        Shader skyboxShader;
+        Mesh skyboxMesh;       
+
+        GLuint sceneFBO = 0;
         GLuint starCubemap = 0;
 
-
-        GLuint outputTexture = 0;
-        int texWidth = 0;
-        int texHeight = 0;
-        
         GLuint diskVolumeTexture = 0;
-
-        int diskNR = 512;
-        int diskNTheta = 1024;
-        int diskNZ = 128;
-
-        float diskRMin = 2.5f;
-        float diskRMax = 12.0f;
-        float diskZMin = -0.4f;
-        float diskZMax = 0.4f;
         
+        GLuint sceneColourTex = 0;
+        GLuint diskOverlayTex = 0;
+        GLuint bhLensedTex = 0;
+
+        // Accretion Disk Dimensions (We should refactor this away later)
+        int diskNR = 128;
+        int diskNTheta = 256;
+        int diskNZ = 64;
+
+        float diskRMin = 4.0f;
+        float diskRMax = 20.0f;
+        float diskZMax = 1.2f;
+       
+         
         void initStarCubemap();
         void initTexture(int w, int h);
         void initDiskVolumeTexture();
+
+        void renderScene();
 };
