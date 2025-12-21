@@ -1,7 +1,6 @@
 #include "BlackHole.hpp"
 #include "Shader.hpp"
 #include "Camera.hpp"
-#include "glm/gtc/matrix_transform.hpp"
 
 BlackHole::BlackHole(const glm::vec3& pos)
     : position(pos)
@@ -46,5 +45,7 @@ void BlackHole::updateScreenSpace(const Camera& cam, int w, int h) {
 
 void BlackHole::uploadToShader(Shader& shader) const {
     shader.setVec3("bh_position", position);
-    shader.setFloat("bh_rs", 2.0f);
+    shader.setFloat("bh_rs", rs);
+    shader.setVec2("bh_screenPos", screenUV);
+    shader.setFloat("horizonRadius", horizonRadius);
 }

@@ -34,7 +34,8 @@ class Renderer {
         GLuint diskVolumeTexture = 0;
         
         GLuint sceneColourTex = 0;
-        GLuint diskOverlayTex = 0;
+        GLuint diskOverlayNearTex = 0;
+        GLuint diskOverlayFarTex = 0;
         GLuint bhLensedTex = 0;
 
         // Accretion Disk Dimensions (We should refactor this away later)
@@ -50,6 +51,7 @@ class Renderer {
         void initStarCubemap();
         void initTexture(int w, int h);
         void initDiskVolumeTexture();
+        void initDiskOverlayTextures(int w, int h);
 
         void renderScene();
 };

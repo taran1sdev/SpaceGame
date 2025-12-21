@@ -89,4 +89,10 @@ void Camera::uploadToShader(Shader& shader) const {
     shader.setVec3("camForward", getForward());
     shader.setVec3("camRight", getRight());
     shader.setVec3("camUp", getUp());
+
+    glm::mat4 view = getViewMatrix();
+    glm::mat4 proj = getProjectionMatrix();
+    glm::mat4 invViewProj = glm::inverse(proj * view);
+
+    shader.setMat4("invViewProj", invViewProj);
 }

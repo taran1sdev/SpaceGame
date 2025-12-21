@@ -1,6 +1,6 @@
 #version 460 core
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
-layout (rgba32f, binding = 0) writeonly uniform image3D diskVolume;
+layout (rgba16f, binding = 0) writeonly uniform image3D diskVolume;
 
 uniform float rMin;
 uniform float rMax;
@@ -70,7 +70,7 @@ void main() {
     float y = mix(zMin, zMax, uz);
 
     float H = abs(y);
-    float halfThickness = (zMax - zMin) * 0.5;
+    float halfThickness = (zMax - zMin) * 5.5;
     float verticalFalloff = exp(-pow(H / (halfThickness * 0.7), 2.0));
 
     float falloffIn  = smoothstep(rMin, rMin * 1.2, r);
@@ -85,7 +85,7 @@ void main() {
     );
     vec3 warped = warpCoords + (warp - 0.5) * 2.0 * 1.2;
 
-    float tangentialStretch = 25.0;
+    float tangentialStretch = 15.0;
     vec3 filamentCoords = warped * vec3(1.0, tangentialStretch, 1.0) * 1.8;
     float filaments = pow(fbmRidged(filamentCoords), 4.0);
 

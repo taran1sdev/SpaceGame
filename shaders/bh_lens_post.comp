@@ -4,11 +4,13 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(rgba16f, binding = 0) uniform image2D outImage;
 
 layout(binding = 1) uniform sampler2D sceneColour;   
-layout(binding = 2) uniform sampler2D diskOverlay; 
+layout(binding = 2) uniform sampler2D diskNear;
+layout(binding = 3) uniform sampler2D diskFar;
 
 uniform vec2 resolution;
 
-uniform vec2  bh_uv;
+uniform vec2  bh_screenPos;
+uniform float bh_rs;
 
 uniform float horizonRadius;  
 uniform float lensInnerRadius;
@@ -35,21 +37,10 @@ void main()
 
     float aspect = resolution.x / resolution.y;
 
-    vec2 delta = uv - bh_uv;
+    vec2 delta = uv - bh_screenPos;
     delta.x *= aspect;
 
     float dist = length(delta);
-
-    if (dist > lensOuterRadius)
-    {
-        imageStore(outImage, px, texture(sceneColour, uv));
-        return;
-    }
-
-    if (dist < horizonRadius) {
-        imageStore(outImage, px, vec4(0.0, 0.0, 0.0, 1.0));
-        return;
-    }
 
     float ringT = 1.0 - smoothstep(ringWidth, ringWidth * 2.0, abs(dist - ringRadius));
     vec3 ring = ringColour * ringIntensity * ringT;
@@ -62,16 +53,24 @@ void main()
     
     float compressed = dist * (1.0 - lensStrength * t);
 
-    vec2 uvWarped = bh_uv + vec2(
+    vec2 uvWarped = bh_screenPos+ vec2(
             dir.x / aspect,
             dir.y) * compressed;
 
     vec3 scene = sampleScene(uvWarped).rgb;
-    vec4 disk  = texture(diskOverlay, uv);
+    vec4 dn = texture(diskNear, uvWarped);
+    vec4 df = texture(diskFar, uvWarped);
 
-    scene = mix(scene, disk.rgb, disk.a);
-    scene += ring;
+    float outsideBH = step(horizonRadius, dist);
 
-    imageStore(outImage, px, vec4(scene, 1.0));
+    scene += df.rgb * (df.a * outsideBH * 0.35);
+    
+    vec3 colour = scene * outsideBH;
+    
+    colour = mix(colour, dn.rgb, dn.a);
+
+    colour += ring;
+    
+    imageStore(outImage, px, vec4(colour, 1.0));
 }
 

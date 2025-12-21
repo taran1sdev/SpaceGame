@@ -2,18 +2,17 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(rgba16f, binding = 0) uniform image2D diskOverlay;
-
 layout(binding = 1) uniform sampler3D diskVolume;
 
 uniform vec2  resolution;
 
 uniform vec3  camPos;
-uniform vec3  camForward;
-uniform vec3  camRight;
-uniform vec3  camUp;
+uniform mat4 invViewProj;
 
 uniform vec3  bh_position;
+uniform vec2 bh_screenPos;
 uniform float bh_rs;
+uniform float horizonRadius;
 
 uniform float disk_rMin;
 uniform float disk_rMax;
@@ -23,6 +22,12 @@ uniform float disk_alphaScale;
 uniform float disk_emissiveScale;
 uniform float disk_thicknessTaps;
 uniform float disk_thicknessJitter;
+
+uniform float disk_planeY;
+uniform float disk_yMin;
+uniform float disk_yMax;
+
+uniform float far_warp_strength;
 
 const float PI = 3.141592653589793;
 
@@ -44,7 +49,7 @@ vec3 diskShading(vec3 relBH, vec3 viewDir)
     float v = theta / (2.0 * PI);
     float w = (y + disk_zMax) / max(2.0 * disk_zMax, 1e-6);
 
-    vec3 dv = texture(diskVolume, vec3(u, v, w)).rgb;
+    vec3 dv = texture(diskVolume, vec3(v, u, w)).rgb;
     float density = dv.r;
     float temp    = dv.g;
 
@@ -61,7 +66,7 @@ vec3 diskShading(vec3 relBH, vec3 viewDir)
     float delta = 1.0 / (gamma * (1.0 - beta));
     delta = clamp(delta, 0.6, 1.8);
 
-    float dopplerStrength = 5.0;
+    float dopplerStrength = 2.0;
     float brightness = pow(delta, dopplerStrength);
     vec3 colourShift = vec3(1.0 / delta, 1.0, delta);
     baseColour *= colourShift * brightness;
@@ -77,21 +82,50 @@ void main()
     ivec2 px = ivec2(gl_GlobalInvocationID.xy);
     if (px.x >= int(resolution.x) || px.y >= int(resolution.y)) return;
 
-    vec2 uv = (vec2(px) + 0.5) / resolution * 2.0 - 1.0;
-    uv.x *= (resolution.x / resolution.y);
+    vec2 uv = (vec2(px) + 0.5) / resolution;
+    
+    if (far_warp_strength > 0.0) {
+        float aspect = resolution.x / resolution.y;
 
-    vec3 rayDir = normalize(camForward + uv.x * camRight + uv.y * camUp);
-    vec3 rayOrg = camPos;
+        vec2 d = uv - bh_screenPos;
+        vec2 da = vec2(d.x * aspect, d.y);
+
+        float r = length(da);
+        float w = (horizonRadius * horizonRadius) / (r*r + 1e-5);
+
+        float k = clamp(far_warp_strength * w, 0.0, 0.95);
+
+        vec2 da2 = da * (1.0 - k);
+        uv = bh_screenPos + vec2(da2.x / aspect, da2.y);
+    }
+
+
+    vec2 ndc = uv * 2.0 - 1.0;
+
+    vec4 nearH = invViewProj * vec4(ndc, -1.0, 1.0);
+    vec4 farH = invViewProj * vec4(ndc, 1.0, 1.0);
+
+    vec3 nearP = nearH.xyz / nearH.w;
+    vec3 farP = farH.xyz / farH.w;
+
+    vec3 rayOrg = nearP;
+    vec3 rayDir = normalize(farP - nearP);
 
     float denom = rayDir.y;
     vec4 outRGBA = vec4(0.0);
 
     if (abs(denom) > 1e-6) {
-        float t = (bh_position.y - rayOrg.y) / denom;
+        float t = (disk_planeY - rayOrg.y) / rayDir.y;
 
         if (t > 0.0) {
             vec3 hitWorld = rayOrg + rayDir * t;
             vec3 relBH = hitWorld - bh_position;
+            
+            float diskDepth = dot(hitWorld - rayOrg, rayDir);
+            float bhDepth   = dot(bh_position - rayOrg, rayDir);
+
+            float frontMask = diskDepth < bhDepth * 1.05 ? 1.0 : 0.0;
+
 
             float r = length(relBH.xz);
             if (r >= disk_rMin && r <= disk_rMax) {
@@ -104,9 +138,8 @@ void main()
 
                 for (int i = 0; i < taps; i++) {
                     float fi = (float(i) + 0.5) / float(taps);
-                    // [-1, 1] stratified + jitter
-                    float oy = (fi * 2.0 - 1.0) + jitter * 0.1;
-                    float yOff = oy * disk_zMax;
+                    float fiJ = clamp(fi + jitter * 0.05, 0.0, 1.0);
+                    float yOff = mix(disk_yMin, disk_yMax, fiJ);
 
                     vec3 sampleRel = relBH;
                     sampleRel.y = yOff;
@@ -121,7 +154,7 @@ void main()
                     float u = (r - disk_rMin) / max(disk_rMax - disk_rMin, 1e-6);
                     float v = theta / (2.0 * PI);
                     float w = (yOff + disk_zMax) / max(2.0 * disk_zMax, 1e-6);
-                    float density = texture(diskVolume, vec3(u, v, w)).r;
+                    float density = texture(diskVolume, vec3(v, u, w)).r;
 
                     float a = 1.0 - exp(-density * disk_alphaScale);
                     accum += col * a * (1.0 - accumA);
@@ -129,10 +162,11 @@ void main()
                     if (accumA > 0.99) break;
                 }
 
-                outRGBA = vec4(accum, accumA);
+                outRGBA = vec4(accum, frontMask * accumA);
             }
         }
     }
+    
 
     imageStore(diskOverlay, px, outRGBA);
 }

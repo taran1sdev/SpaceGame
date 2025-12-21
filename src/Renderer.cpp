@@ -25,7 +25,8 @@ Renderer::~Renderer()
 {
     glDeleteFramebuffers(1, &sceneFBO);
     glDeleteTextures(1, &sceneColourTex);
-    glDeleteTextures(1, &diskOverlayTex);
+    glDeleteTextures(1, &diskOverlayNearTex);
+    glDeleteTextures(1, &diskOverlayFarTex);
     glDeleteTextures(1, &bhLensedTex);
 }
 
@@ -33,6 +34,31 @@ void Renderer::init()
 {
     skyboxMesh.createCube();
     initDiskVolumeTexture();
+    
+    diskVolumeShader.use();
+
+    glBindImageTexture(
+            0, diskVolumeTexture,
+            0, GL_TRUE, 0,
+            GL_WRITE_ONLY,
+            GL_RGBA16F
+    );
+
+    diskVolumeShader.setFloat("rMin", diskRMin);
+    diskVolumeShader.setFloat("rMax", diskRMax);
+    diskVolumeShader.setFloat("zMax", diskZMax);
+
+    float t = static_cast<float>(glfwGetTime());
+
+    diskVolumeShader.setFloat("uTime", t);
+
+    GLuint gx = (diskNTheta + 7) / 8;
+    GLuint gy = (diskNR + 7) / 8;
+    GLuint gz = (diskNZ + 3) / 4;
+
+    glDispatchCompute(gx, gy, gz);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
     initStarCubemap();
 
     glCreateFramebuffers(1, &sceneFBO);
@@ -74,15 +100,10 @@ void Renderer::initTexture(int w, int h)
         0
     );
 
-    if (diskOverlayTex)
-        glDeleteTextures(1, &diskOverlayTex);
+    if (diskOverlayNearTex) glDeleteTextures(1, &diskOverlayNearTex);
+    if (diskOverlayFarTex) glDeleteTextures(1, &diskOverlayFarTex);
 
-    glCreateTextures(GL_TEXTURE_2D, 1, &diskOverlayTex);
-    glTextureStorage2D(diskOverlayTex, 1, GL_RGBA16F, w, h);
-    glTextureParameteri(diskOverlayTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(diskOverlayTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTextureParameteri(diskOverlayTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(diskOverlayTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    initDiskOverlayTextures(w, h);
 
     if (glCheckNamedFramebufferStatus(sceneFBO, GL_FRAMEBUFFER)
         != GL_FRAMEBUFFER_COMPLETE)
@@ -120,6 +141,21 @@ void Renderer::initDiskVolumeTexture() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);    
 }
 
+void Renderer::initDiskOverlayTextures(int w, int h) {
+    auto makeTex = [&](GLuint& tex)
+    {
+        glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+        glTextureStorage2D(tex, 1, GL_RGBA16F, w, h);
+        glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    };
+
+    makeTex(diskOverlayNearTex);
+    makeTex(diskOverlayFarTex);
+}
+
 void Renderer::render()
 {
     int w, h;
@@ -137,38 +173,54 @@ void Renderer::render()
     renderScene(); // stars, ships, skybox, etc.
 
     diskImposterShader.use();
-
-    glBindImageTexture(
-        0,
-        diskOverlayTex,
-        0,
-        GL_FALSE,
-        0,
-        GL_WRITE_ONLY,
-        GL_RGBA16F
-    );
-
-    glBindTextureUnit(1, diskVolumeTexture);
-
-    diskImposterShader.setVec2("resolution", (float)w, (float)h);
-
+    
+    // shared uniforms
     camera.uploadToShader(diskImposterShader);
     blackHole.uploadToShader(diskImposterShader);
 
+    diskImposterShader.setVec2("resolution", glm::vec2(w, h));
     diskImposterShader.setFloat("disk_rMin", diskRMin);
     diskImposterShader.setFloat("disk_rMax", diskRMax);
     diskImposterShader.setFloat("disk_zMax", diskZMax);
 
+    glBindTextureUnit(1, diskVolumeTexture);
+    
     diskImposterShader.setFloat("disk_alphaScale", 0.9f);
-    diskImposterShader.setFloat("disk_emissiveScale", 2.2f);
+    diskImposterShader.setFloat("disk_emissiveScale", 0.2f);
     diskImposterShader.setFloat("disk_thicknessTaps", 8.0f);
     diskImposterShader.setFloat("disk_thicknessJitter", 0.65f);
 
+    // near disk 
+    glBindImageTexture(
+        0, diskOverlayNearTex,
+        0, GL_FALSE,
+        0, GL_WRITE_ONLY, GL_RGBA16F
+    );
+    
+    diskImposterShader.setFloat("disk_planeY", 0.0f);
+    diskImposterShader.setFloat("disk_yMin", -diskZMax);
+    diskImposterShader.setFloat("disk_yMax", 0.0f);            
+    diskImposterShader.setFloat("far_warp_strength", 0.0f);
+    
     GLuint gx = (w + 7) / 8;
     GLuint gy = (h + 7) / 8;
     glDispatchCompute(gx, gy, 1);
-
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
+    // far disk
+    glBindImageTexture(
+          0, diskOverlayFarTex,
+          0, GL_FALSE,
+          0, GL_WRITE_ONLY, GL_RGBA16F
+    );
+    
+    diskImposterShader.setFloat("disk_planeY", diskZMax * 0.25);
+    diskImposterShader.setFloat("disk_yMin", 0.0f);
+    diskImposterShader.setFloat("disk_yMax", diskZMax);
+    diskImposterShader.setFloat("far_warp_strength", 0.3f);
+    
+    glDispatchCompute(gx, gy, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);  
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, w, h);
@@ -182,16 +234,16 @@ void Renderer::render()
     );
 
     glBindTextureUnit(1, sceneColourTex);
-    glBindTextureUnit(2, diskOverlayTex);
+    glBindTextureUnit(2, diskOverlayNearTex);
+    glBindTextureUnit(3, diskOverlayFarTex);
+    
+    blackHole.uploadToShader(bhLensPostShader);
 
     bhLensPostShader.setVec2("resolution", (float)w, (float)h);
 
-    bhLensPostShader.setVec2("bh_uv", blackHole.screenUV.r, blackHole.screenUV.g);
-    bhLensPostShader.setFloat("horizonRadius", blackHole.horizonRadius);
-
     bhLensPostShader.setFloat("lensInnerRadius", blackHole.horizonRadius * 1.05f);
     bhLensPostShader.setFloat("lensOuterRadius", blackHole.horizonRadius * 4.0f);
-    bhLensPostShader.setFloat("lensStrength", 0.2f);
+    bhLensPostShader.setFloat("lensStrength", 0.7f);
 
     bhLensPostShader.setFloat("ringRadius", blackHole.horizonRadius * 1.02f);
     bhLensPostShader.setFloat("ringWidth", blackHole.horizonRadius * 0.01f);
