@@ -74,26 +74,25 @@ void main()
     float distW = length(dw);
     
     vec3 scene = sampleScene(uvWarped).rgb;
-    
-    vec4 dtFlat = texture(diskTop, uv);
-    vec4 dbFlat = texture(diskBottom, uv);
-
-    vec4 dtWarp = texture(diskTop, uvWarped);
-    vec4 dbWarp = texture(diskBottom, uvWarped);
+     
+    vec4 baseDisk = texture(diskBase, uv);
+    vec4 dt = texture(diskTop, uvWarped);
+    vec4 db = texture(diskBottom, uvWarped);
     
     float soft = horizonRadius * 0.05;
     float outsideBH = smoothstep(horizonRadius, horizonRadius + soft, dist);
     
-    //dtWarp.a *= outsideBH;
-    //dbWarp.a *= outsideBH;
+    dt.a *= outsideBH;
+    db.a *= outsideBH;
+    
+    //vec4 dt = mix(dtFlat, dtWarp, warpW);
+    //vec4 db = mix(dbFlat, dbWarp, warpW);
+    
+    
+    vec3 colour = scene * outsideBH;
+    
+    colour = mix(colour, baseDisk.rgb, baseDisk.a);
 
-    vec4 dt = mix(dtFlat, dtWarp, warpW);
-    vec4 db = mix(dbFlat, dbWarp, warpW);
-    
-    vec3 colour = scene;
-    
-    colour *= outsideBH;
-    
     colour = mix(colour, dt.rgb, clamp(dt.a, 0.0, 1.0));
     colour = mix(colour, db.rgb, clamp(db.a, 0.0, 1.0));
 

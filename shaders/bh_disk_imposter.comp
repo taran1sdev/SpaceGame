@@ -27,7 +27,7 @@ uniform float disk_planeY;
 uniform float disk_yMin;
 uniform float disk_yMax;
 
-uniform float far_warp_strength;
+uniform float disk_isBase; 
 
 const float PI = 3.141592653589793;
 
@@ -84,22 +84,6 @@ void main()
 
     vec2 uv = (vec2(px) + 0.5) / resolution;
     
-    if (far_warp_strength > 0.0) {
-        float aspect = resolution.x / resolution.y;
-
-        vec2 d = uv - bh_screenPos;
-        vec2 da = vec2(d.x * aspect, d.y);
-
-        float r = length(da);
-        float w = (horizonRadius * horizonRadius) / (r*r + 1e-5);
-
-        float k = clamp(far_warp_strength * w, 0.0, 0.95);
-
-        vec2 da2 = da * (1.0 - k);
-        uv = bh_screenPos + vec2(da2.x / aspect, da2.y);
-    }
-
-
     vec2 ndc = uv * 2.0 - 1.0;
 
     vec4 nearH = invViewProj * vec4(ndc, -1.0, 1.0);
@@ -123,14 +107,16 @@ void main()
         if (t > 0.0) {
             vec3 hitWorld = rayOrg + rayDir * t;
             vec3 relBH = hitWorld - bh_position;
-            
-            vec3 camToBH  = bh_position - camPos;
-            vec3 camToHit = hitWorld - camPos;
+           
+            if (disk_isBase == 1.0) {
+                vec3 camToBH  = bh_position - camPos;
+                vec3 camToHit = hitWorld - camPos;
 
-            float frontFactor = dot(camToHit, camToBH);
-            if (frontFactor > dot(camToBH, camToBH)) {
-                imageStore(diskOverlay, px, vec4(0.0));
-                return;
+                float frontFactor = dot(camToHit, camToBH);
+                if (frontFactor > dot(camToBH, camToBH)) {
+                    imageStore(diskOverlay, px, vec4(0.0));
+                    return;
+                }
             }
 
             float aspect = resolution.x / resolution.y;

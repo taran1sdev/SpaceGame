@@ -34,6 +34,8 @@ class Renderer {
         GLuint diskVolumeTexture = 0;
         
         GLuint sceneColourTex = 0;
+
+        GLuint diskOverlayBase = 0;
         GLuint diskOverlayTop = 0;
         GLuint diskOverlayBottom = 0;
         GLuint bhLensedTex = 0;

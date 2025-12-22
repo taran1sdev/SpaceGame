@@ -25,6 +25,7 @@ Renderer::~Renderer()
 {
     glDeleteFramebuffers(1, &sceneFBO);
     glDeleteTextures(1, &sceneColourTex);
+    glDeleteTextures(1, &diskOverlayBase);
     glDeleteTextures(1, &diskOverlayTop);
     glDeleteTextures(1, &diskOverlayBottom);
     glDeleteTextures(1, &bhLensedTex);
@@ -99,7 +100,8 @@ void Renderer::initTexture(int w, int h)
         sceneColourTex,
         0
     );
-
+    
+    if (diskOverlayBase) glDeleteTextures(1, &diskOverlayBase);
     if (diskOverlayTop) glDeleteTextures(1, &diskOverlayTop);
     if (diskOverlayBottom) glDeleteTextures(1, &diskOverlayBottom);
 
@@ -151,7 +153,8 @@ void Renderer::initDiskOverlayTextures(int w, int h) {
         glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     };
-
+    
+    makeTex(diskOverlayBase);
     makeTex(diskOverlayTop);
     makeTex(diskOverlayBottom);
 }
@@ -189,10 +192,24 @@ void Renderer::render()
     diskImposterShader.setFloat("disk_emissiveScale", 0.2f);
     diskImposterShader.setFloat("disk_thicknessTaps", 8.0f);
     diskImposterShader.setFloat("disk_thicknessJitter", 0.65f);
+    
+    diskImposterShader.setFloat("disk_planeY", 0.0f);
+    diskImposterShader.setFloat("disk_yMin", 0.0f);
+    diskImposterShader.setFloat("disk_yMax", diskZMax);
 
+    diskImposterShader.setFloat("disk_isBase", 1.0);
+    
     GLuint gx = (w + 7) / 8;
     GLuint gy = (h + 7) / 8;
     
+    glBindImageTexture(
+            0, diskOverlayBase,
+            0, GL_FALSE,
+            0, GL_WRITE_ONLY, GL_RGBA16F);
+    
+    glDispatchCompute(gx, gy, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
     // top disk
     glBindImageTexture(
           0, diskOverlayTop,
@@ -201,10 +218,11 @@ void Renderer::render()
     );
     
     diskImposterShader.setFloat("disk_planeY", 0.0f);
-    diskImposterShader.setFloat("disk_yMin", 0.0f);
+    diskImposterShader.setFloat("disk_yMin", -diskZMax);
     diskImposterShader.setFloat("disk_yMax", diskZMax);
-    diskImposterShader.setFloat("far_warp_strength", 0.0f);
-
+    
+    diskImposterShader.setInt("disk_isBase", 0);
+    
     glDispatchCompute(gx, gy, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);  
     
@@ -217,7 +235,8 @@ void Renderer::render()
     diskImposterShader.setFloat("disk_planeY", 0.0f);
     diskImposterShader.setFloat("disk_yMin", -diskZMax);
     diskImposterShader.setFloat("disk_yMax", 0.0f);
-    diskImposterShader.setFloat("far_warp_strength", 0.0f);
+
+    diskImposterShader.setInt("disk_isBase", 0);
 
     glDispatchCompute(gx, gy, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -234,6 +253,7 @@ void Renderer::render()
     );
 
     glBindTextureUnit(1, sceneColourTex);
+    glBindTextureUnit(2, diskOverlayBase);
     glBindTextureUnit(3, diskOverlayTop);
     glBindTextureUnit(4, diskOverlayBottom);
     
