@@ -97,7 +97,7 @@ void main() {
     float density = baseDensity * combinedNoise * 3.0; 
     density = pow(density * 1.5, 3.0);                
 
-    float temp = pow(rMin / (r + 1e-4), 2.5);
+    float temp = pow(rMin / (r + 1e-4), 3.5);
     temp = clamp(pow(temp, 0.8), 0.0, 1.0);
 
     imageStore(diskVolume, gid, vec4(density, temp, 0.0, 1.0));
