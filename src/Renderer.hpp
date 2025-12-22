@@ -6,6 +6,7 @@
 #include "BlackHole.hpp"
 #include "FullscreenQuad.hpp"
 #include "Mesh.hpp"
+#include "Spaceship.hpp"
 
 class Renderer {
     public:
@@ -13,7 +14,7 @@ class Renderer {
         Renderer(Camera& cam, BlackHole& bh);
         ~Renderer();
         void init();
-        void render();
+        void render(const Spaceship& ship);
     private:
         Camera& camera;
         BlackHole& blackHole;
@@ -27,6 +28,8 @@ class Renderer {
 
         Shader skyboxShader;
         Mesh skyboxMesh;       
+        
+        Shader shipShader;        
 
         GLuint sceneFBO = 0;
         GLuint starCubemap = 0;
@@ -55,5 +58,5 @@ class Renderer {
         void initDiskVolumeTexture();
         void initDiskOverlayTextures(int w, int h);
 
-        void renderScene();
+        void renderScene(const Spaceship& ship);
 };

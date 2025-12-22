@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
+find_package(assimp REQUIRED)
 
 add_library(glad external/glad/src/glad.c)
 target_include_directories(glad PUBLIC external/glad/include)
@@ -20,5 +21,6 @@ target_include_directories(blackhole PUBLIC external)
 target_link_libraries(blackhole
     glad
     glfw
+    assimp
     OpenGL::GL
 )

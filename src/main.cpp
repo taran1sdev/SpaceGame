@@ -3,39 +3,48 @@
 #include <iostream>
 
 #include "BlackHole.hpp"
-#include "Shader.hpp"
+#include "BlackHoleGravity.hpp"
 #include "Renderer.hpp"
 #include "Camera.hpp"
+#include "Spaceship.hpp"
 
-Camera camera;
-float lastX = 400, lastY = 300, deltaTime = 0.0f, lastFrame = 0.0f;
-bool firstMouse = true;
+static float mouseDX = 0.0f;
+static float mouseDY = 0.0f;
+static bool firstMouse = true;
 
-// We register this callback function with GLFW to process the mouse position
-void mouseCallback(GLFWwindow* window, double x, double y) {
+static double lastMouseX = 0.0;
+static double lastMouseY = 0.0;
+
+static bool keyW = false;
+static bool keyS = false;
+
+static float mouseSensitivity = 0.0025f;
+
+void frameBufferCallback(GLFWwindow* window, int w, int h) {
+    glViewport(0, 0, w, h);
+}
+
+void MouseCallback(GLFWwindow* window, double xpos, double ypos) {
     if (firstMouse) {
-        lastX = x;
-        lastY = y;
+        lastMouseX = xpos;
+        lastMouseY = ypos;
         firstMouse = false;
     }
 
-    float xOffset = x - lastX;
-    float yOffset = lastY - y;
+    mouseDX = static_cast<float>(xpos - lastMouseX);
+    // Invert the Y-axis - lego star wars style
+    mouseDY = static_cast<float>(lastMouseY - ypos);
 
-    lastX = x;
-    lastY = y;
-
-    camera.getMouse(xOffset, yOffset);
+    lastMouseX = xpos;
+    lastMouseY = ypos;
 }
 
-void framebufferCallback(GLFWwindow* window, int w, int h)
-{
-    glViewport(0, 0, w, h);
+void PollInput(GLFWwindow* window) {
+    keyW = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+    keyS = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
 
-    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(window));
-    if (cam && h > 0) {
-        cam->aspect = static_cast<float>(w) / static_cast<float>(h);
-    }
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);            
 }
 
 int main() {
@@ -57,38 +66,66 @@ int main() {
 
     glfwMakeContextCurrent(window);
     
-    // Register callback for mouse 
-    glfwSetCursorPosCallback(window, mouseCallback);
+    // Register callback for mouse     
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    
-    glfwSetWindowUserPointer(window, &camera);
+    glfwSetCursorPosCallback(window, MouseCallback);
 
-    glfwSetFramebufferSizeCallback(window, framebufferCallback);  
+    //glEnable(GL_DEPTH_TEST);
+    
+
+    glfwSetFramebufferSizeCallback(window, frameBufferCallback);  
     // Use glad to load OpenGL
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr <<"Failed to initialize GLAD\n";
         return -1;
     }
     
+    Camera camera; 
+
+    glfwSetWindowUserPointer(window, &camera);
+    
     BlackHole bH(glm::vec3(0.0f));
+    Spaceship ship("../assets/spaceship.obj");
     Renderer renderer(camera, bH);
     renderer.init();
+    
+    BlackHoleGravity bHG;
+    
+    float lastFrameTime = static_cast<float>(glfwGetTime());
 
     while (!glfwWindowShouldClose(window)) {
-        glClear(GL_COLOR_BUFFER_BIT);
+        float currentTime = static_cast<float>(glfwGetTime());
+        float deltaTime = currentTime - lastFrameTime;
+        lastFrameTime = currentTime;
+
+        glfwPollEvents();
+        PollInput(window);
         
-        float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-        
+        ship.Rotate(
+                mouseDX * mouseSensitivity, 
+                mouseDY * mouseSensitivity
+        );
+
+        mouseDX = 0.0f;
+        mouseDY = 0.0f;
+
         // Check every frame for pressed key - using a callback doesn't allow keys
         // to be held and results in choppy movements
-        camera.getKeys(window, deltaTime);
+        
+        if (keyW)
+            ship.ApplyThrust(30.0f * deltaTime);
 
-        renderer.render();
+        if (keyS)
+            ship.ApplyBrake(0.95f);
+
+        bHG.apply(ship.body, deltaTime);
+        ship.Update(deltaTime);
+
+        camera.Follow(ship, deltaTime);
+
+        renderer.render(ship);
 
         glfwSwapBuffers(window);
-        glfwPollEvents();
     }
     
     glfwTerminate();

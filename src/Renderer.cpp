@@ -6,6 +6,7 @@
 #include "Camera.hpp"
 #include "BlackHole.hpp"
 #include "Renderer.hpp"
+#include "Spaceship.hpp"
 
 #include <iostream>
 
@@ -17,7 +18,8 @@ Renderer::Renderer(Camera& cam, BlackHole& bh)
       diskVolumeShader("../shaders/disk_init.comp"),
       bhLensPostShader("../shaders/bh_lens_post.comp"),
       fullscreenShader("../shaders/fullscreen.vert", "../shaders/fullscreen.frag"),
-      skyboxShader("../shaders/skybox.vert", "../shaders/skybox.frag")
+      skyboxShader("../shaders/skybox.vert", "../shaders/skybox.frag"),
+      shipShader("../shaders/ship.vert", "../shaders/ship.frag")
 {
 }
 
@@ -159,7 +161,7 @@ void Renderer::initDiskOverlayTextures(int w, int h) {
     makeTex(diskOverlayBottom);
 }
 
-void Renderer::render()
+void Renderer::render(const Spaceship& ship)
 {
     int w, h;
     glfwGetFramebufferSize(glfwGetCurrentContext(), &w, &h);
@@ -173,7 +175,7 @@ void Renderer::render()
     glViewport(0, 0, w, h);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    renderScene(); // stars, ships, skybox, etc.
+    renderScene(ship); 
 
     diskImposterShader.use();
     
@@ -286,7 +288,7 @@ void Renderer::render()
 }
 
 
-void Renderer::renderScene()
+void Renderer::renderScene(const Spaceship& ship)
 {
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
@@ -306,6 +308,17 @@ void Renderer::renderScene()
 
     glEnable(GL_CULL_FACE);
     glDepthMask(GL_TRUE);
+
+    shipShader.use();
+
+    shipShader.setMat4("view", camera.getViewMatrix());
+    shipShader.setMat4("projection", camera.getProjectionMatrix());
+   
+    shipShader.setVec3("cameraPos", camera.position);
+    shipShader.setVec3("lightDir", glm::normalize(glm::vec3(1.0f, -1.0f, 0.3f)));
+    shipShader.setVec3("shipColour", glm::vec3(0.8f, 0.85f, 0.9f));
+
+    ship.Draw(shipShader);
 }
 
-
+  

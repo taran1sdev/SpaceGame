@@ -1,17 +1,21 @@
 #pragma once
 #include <glm/glm.hpp>
 
-struct GLFWwindow;
+class Spaceship;
 
 class Camera {
     public:
         Camera();
         
-        // Position
-        glm::vec3 position;
         float yaw;
         float pitch;
-        
+
+        // Position
+        glm::vec3 position;
+        glm::vec3 target;
+        glm::vec3 up;
+    
+        void Follow(const Spaceship& ship, float deltaTime);
         // Projection
         float fov;
         float aspect;
@@ -27,11 +31,12 @@ class Camera {
         glm::mat4 getViewMatrix() const;
         glm::mat4 getProjectionMatrix() const;
 
-        // Get user input
-        void getMouse(float x, float y);
-        void getKeys(GLFWwindow* window, float deltaTime);
-        
         // Communicate with GPU 
         void uploadToShader(class Shader& shader) const;
         void updateCameraVectors();
+
+    private:
+        float followDistance = 10.0f;
+        float followHeight = 8.0f;
+        float smoothing = 8.0f;
 };
