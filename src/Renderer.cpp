@@ -200,10 +200,10 @@ void Renderer::render()
           0, GL_WRITE_ONLY, GL_RGBA16F
     );
     
-    diskImposterShader.setFloat("disk_planeY", diskZMax * 0.05);
+    diskImposterShader.setFloat("disk_planeY", 0.0f);
     diskImposterShader.setFloat("disk_yMin", 0.0f);
     diskImposterShader.setFloat("disk_yMax", diskZMax);
-    diskImposterShader.setFloat("far_warp_strength", 0.3f);
+    diskImposterShader.setFloat("far_warp_strength", 0.0f);
 
     glDispatchCompute(gx, gy, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);  
@@ -214,10 +214,10 @@ void Renderer::render()
             0, GL_WRITE_ONLY, GL_RGBA16F
     );
 
-    diskImposterShader.setFloat("disk_planeY", -diskZMax * 0.05);
+    diskImposterShader.setFloat("disk_planeY", 0.0f);
     diskImposterShader.setFloat("disk_yMin", -diskZMax);
     diskImposterShader.setFloat("disk_yMax", 0.0f);
-    diskImposterShader.setFloat("far_warp_strength", 0.3f);
+    diskImposterShader.setFloat("far_warp_strength", 0.0f);
 
     glDispatchCompute(gx, gy, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -243,7 +243,7 @@ void Renderer::render()
 
     bhLensPostShader.setFloat("lensInnerRadius", blackHole.horizonRadius * 1.05f);
     bhLensPostShader.setFloat("lensOuterRadius", blackHole.horizonRadius * 4.0f);
-    bhLensPostShader.setFloat("lensStrength", 0.7f);
+    bhLensPostShader.setFloat("lensStrength", 1.2f);
 
     bhLensPostShader.setFloat("ringRadius", blackHole.horizonRadius * 1.02f);
     bhLensPostShader.setFloat("ringWidth", blackHole.horizonRadius * 0.01f);

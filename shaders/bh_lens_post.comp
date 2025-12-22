@@ -43,6 +43,16 @@ void main()
     delta.x *= aspect;
 
     float dist = length(delta);
+    
+    // This allows us to sample the front disk unwarped and the back warped
+    // to produce the wrapping around BH effect
+    float equatorHalfWidth = horizonRadius * 0.7;
+    float equatorFeather = horizonRadius * 0.2;
+
+    float fromEquator = abs(delta.y);
+
+    float warpW = smoothstep(
+            equatorHalfWidth, equatorHalfWidth + equatorFeather, fromEquator);
 
     float ringT = 1.0 - smoothstep(ringWidth, ringWidth * 2.0, abs(dist - ringRadius));
     vec3 ring = ringColour * ringIntensity * ringT;
@@ -64,19 +74,28 @@ void main()
     float distW = length(dw);
     
     vec3 scene = sampleScene(uvWarped).rgb;
-    vec4 dt = texture(diskTop, uvWarped);
-    vec4 db = texture(diskBottom, uvWarped);
     
-    float soft = horizonRadius * 0.02;
+    vec4 dtFlat = texture(diskTop, uv);
+    vec4 dbFlat = texture(diskBottom, uv);
+
+    vec4 dtWarp = texture(diskTop, uvWarped);
+    vec4 dbWarp = texture(diskBottom, uvWarped);
+    
+    float soft = horizonRadius * 0.05;
     float outsideBH = smoothstep(horizonRadius, horizonRadius + soft, dist);
+    
+    //dtWarp.a *= outsideBH;
+    //dbWarp.a *= outsideBH;
 
+    vec4 dt = mix(dtFlat, dtWarp, warpW);
+    vec4 db = mix(dbFlat, dbWarp, warpW);
+    
     vec3 colour = scene;
-
-    colour = mix(colour, dt.rgb, clamp(dt.a * outsideBH, 0.0, 1.0));
-    colour = mix(colour, db.rgb, clamp(db.a * outsideBH, 0.0, 1.0));
-
     
     colour *= outsideBH;
+    
+    colour = mix(colour, dt.rgb, clamp(dt.a, 0.0, 1.0));
+    colour = mix(colour, db.rgb, clamp(db.a, 0.0, 1.0));
 
     colour += ring;
 

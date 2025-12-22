@@ -43,7 +43,7 @@ class Renderer {
         int diskNTheta = 256;
         int diskNZ = 64;
 
-        float diskRMin = 4.0f;
+        float diskRMin = 5.5f;
         float diskRMax = 20.0f;
         float diskZMax = 1.2f;
        

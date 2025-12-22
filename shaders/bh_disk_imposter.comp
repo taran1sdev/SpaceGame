@@ -37,22 +37,6 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-bool raySphere(vec3 ro, vec3 rd, vec3 c, float r, out float tHit)
-{
-    vec3 oc = ro - c;
-    float b = dot(oc, rd);
-    float c2 = dot(oc, oc) - r * r;
-    float h = b * b - c2;
-    if (h < 0.0) return false;
-
-    float s = sqrt(h);
-    float t0 = -b - s;
-    float t1 = -b + s;
-
-    tHit = (t0 > 0.0) ? t0 : t1;
-    return tHit > 0.0;
-}
-
 vec3 diskShading(vec3 relBH, vec3 viewDir)
 {
     float r = length(relBH.xz);
@@ -127,6 +111,9 @@ void main()
     vec3 rayOrg = nearP;
     vec3 rayDir = normalize(farP - nearP);
 
+    vec4 camH = invViewProj * vec4(0.0, 0.0, -1.0, 1.0);
+    vec3 camPos = camH.xyz / camH.w;
+
     float denom = rayDir.y;
     vec4 outRGBA = vec4(0.0);
 
@@ -137,18 +124,15 @@ void main()
             vec3 hitWorld = rayOrg + rayDir * t;
             vec3 relBH = hitWorld - bh_position;
             
-            float rBH = length(relBH.xz);
+            vec3 camToBH  = bh_position - camPos;
+            vec3 camToHit = hitWorld - camPos;
 
-            float tDisk = t;
-            float tBH;
-            bool hitBH = raySphere(rayOrg, rayDir, bh_position, horizonRadius, tBH);
-
-            if (hitBH && tBH < tDisk)
-            {   
+            float frontFactor = dot(camToHit, camToBH);
+            if (frontFactor > dot(camToBH, camToBH)) {
                 imageStore(diskOverlay, px, vec4(0.0));
                 return;
             }
-            
+
             float aspect = resolution.x / resolution.y;
             vec2 d = (uv - bh_screenPos);
             d.x *= aspect;
@@ -160,7 +144,7 @@ void main()
                 return;
             }
 
-            float innerFeather = disk_rMin * 0.05; // tweak: 0.01–0.05
+            float innerFeather = disk_rMin * 0.05;
             float innerMask = smoothstep(disk_rMin, disk_rMin + innerFeather, r);
 
 
