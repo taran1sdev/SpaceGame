@@ -31,9 +31,9 @@ void MouseCallback(GLFWwindow* window, double xpos, double ypos) {
         firstMouse = false;
     }
 
-    mouseDX = static_cast<float>(xpos - lastMouseX);
+    mouseDX = static_cast<float>(lastMouseX - xpos);
     // Invert the Y-axis - lego star wars style
-    mouseDY = static_cast<float>(lastMouseY - ypos);
+    mouseDY = static_cast<float>(ypos - lastMouseY);
 
     lastMouseX = xpos;
     lastMouseY = ypos;
@@ -85,8 +85,8 @@ int main() {
     glfwSetWindowUserPointer(window, &camera);
     
     BlackHole bH(glm::vec3(0.0f));
-    Spaceship ship("../assets/spaceship.obj");
-    Renderer renderer(camera, bH);
+    Spaceship ship("../assets/ship.fbx");
+    Renderer renderer(camera, bH, ship);
     renderer.init();
     
     BlackHoleGravity bHG;
@@ -113,7 +113,7 @@ int main() {
         // to be held and results in choppy movements
         
         if (keyW)
-            ship.ApplyThrust(30.0f * deltaTime);
+            ship.ApplyThrust(3.0f);
 
         if (keyS)
             ship.ApplyBrake(0.95f);
@@ -123,7 +123,7 @@ int main() {
 
         camera.Follow(ship, deltaTime);
 
-        renderer.render(ship);
+        renderer.render();
 
         glfwSwapBuffers(window);
     }

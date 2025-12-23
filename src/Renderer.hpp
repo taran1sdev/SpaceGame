@@ -11,13 +11,14 @@
 class Renderer {
     public:
         // This is the constructor we will use
-        Renderer(Camera& cam, BlackHole& bh);
+        Renderer(Camera& cam, BlackHole& bh, Spaceship& ship);
         ~Renderer();
         void init();
-        void render(const Spaceship& ship);
+        void render();
     private:
         Camera& camera;
         BlackHole& blackHole;
+        Spaceship& ship;
 
         Shader diskImposterShader;
         Shader diskVolumeShader;
@@ -30,6 +31,7 @@ class Renderer {
         Mesh skyboxMesh;       
         
         Shader shipShader;        
+        GLuint shipTexture = 0;
 
         GLuint sceneFBO = 0;
         GLuint starCubemap = 0;
@@ -58,5 +60,5 @@ class Renderer {
         void initDiskVolumeTexture();
         void initDiskOverlayTextures(int w, int h);
 
-        void renderScene(const Spaceship& ship);
+        void renderScene();
 };

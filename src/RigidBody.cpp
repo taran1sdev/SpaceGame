@@ -15,7 +15,7 @@ void RigidBody::clearForces() {
 } 
 
 void RigidBody::integrate(float dt) {
-    if (!enabled || invMass <= 0.0f ) return;
+    if (/*  !enabled || */ invMass <= 0.0f ) return;
 
     glm::vec3 acceleration = accumForce * invMass;
 

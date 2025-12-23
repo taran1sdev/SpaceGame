@@ -1,6 +1,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
 #include "ddsLoader.hpp"
 #include "Shader.hpp"
 #include "Camera.hpp"
@@ -11,9 +14,10 @@
 #include <iostream>
 
 // Create the renderer with references to the camera object and BH object
-Renderer::Renderer(Camera& cam, BlackHole& bh)
+Renderer::Renderer(Camera& cam, BlackHole& bh, Spaceship& ship)
     : camera(cam),
       blackHole(bh),
+      ship(ship),
       diskImposterShader("../shaders/bh_disk_imposter.comp"),
       diskVolumeShader("../shaders/disk_init.comp"),
       bhLensPostShader("../shaders/bh_lens_post.comp"),
@@ -31,6 +35,7 @@ Renderer::~Renderer()
     glDeleteTextures(1, &diskOverlayTop);
     glDeleteTextures(1, &diskOverlayBottom);
     glDeleteTextures(1, &bhLensedTex);
+    glDeleteTextures(1, &shipTexture);
 }
 
 void Renderer::init()
@@ -123,6 +128,34 @@ void Renderer::initTexture(int w, int h)
     glTextureParameteri(bhLensedTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);    
     glTextureParameteri(bhLensedTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTextureParameteri(bhLensedTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    if (shipTexture) glDeleteTextures(1, &shipTexture);
+
+    glGenTextures(1, &shipTexture);
+    glBindTexture(GL_TEXTURE_2D, shipTexture);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    int width, height, channels;
+
+    unsigned char* data = stbi_load(
+            "../assets/spaceship_diffuse.png",
+            &width, &height, &channels, 0
+    );
+
+    glTexImage2D(
+            GL_TEXTURE_2D, 0,
+            GL_RGBA,
+            w, h, 0,
+            GL_RGBA, 
+            GL_UNSIGNED_BYTE, data
+    );
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+    stbi_image_free(data);
 }
 
 void Renderer::initDiskVolumeTexture() {
@@ -161,7 +194,7 @@ void Renderer::initDiskOverlayTextures(int w, int h) {
     makeTex(diskOverlayBottom);
 }
 
-void Renderer::render(const Spaceship& ship)
+void Renderer::render()
 {
     int w, h;
     glfwGetFramebufferSize(glfwGetCurrentContext(), &w, &h);
@@ -175,7 +208,7 @@ void Renderer::render(const Spaceship& ship)
     glViewport(0, 0, w, h);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    renderScene(ship); 
+    renderScene(); 
 
     diskImposterShader.use();
     
@@ -288,7 +321,7 @@ void Renderer::render(const Spaceship& ship)
 }
 
 
-void Renderer::renderScene(const Spaceship& ship)
+void Renderer::renderScene()
 {
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
@@ -310,6 +343,10 @@ void Renderer::renderScene(const Spaceship& ship)
     glDepthMask(GL_TRUE);
 
     shipShader.use();
+    
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, shipTexture);
+    shipShader.setInt("diffuseMap", 0);
 
     shipShader.setMat4("view", camera.getViewMatrix());
     shipShader.setMat4("projection", camera.getProjectionMatrix());
