@@ -15,7 +15,7 @@ class Camera {
         glm::vec3 target;
         glm::vec3 up;
     
-        void Follow(const Spaceship& ship, float deltaTime);
+        void Follow(const Spaceship& ship);
         // Projection
         float fov;
         float aspect;
@@ -36,6 +36,7 @@ class Camera {
         void updateCameraVectors();
 
     private:
+        glm::vec3 localOffset = glm::vec3(0, 3, 8);
         float followDistance = 10.0f;
         float followHeight = 8.0f;
         float smoothing = 8.0f;

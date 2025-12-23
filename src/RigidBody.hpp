@@ -16,7 +16,7 @@ class RigidBody {
         // captured in BH
         bool captured = false;
         // affected by BH
-        bool enabled = false;
+        bool enabled = true;
 
         void addForce(const glm::vec3& force);
 

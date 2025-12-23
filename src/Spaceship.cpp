@@ -8,11 +8,11 @@ Spaceship::Spaceship(const std::string& meshPath)
       orientation(glm::identity<glm::quat>())
 {
     body.mass = 1.0f;
-    body.position = glm::vec3(0.0f, 0.0f, 40.0f);
+    body.position = glm::vec3(0.0f, 0.0f, 200.0f);
     body.velocity = glm::vec3(0.0f);
 }
 
-// Keyboard Controls 
+// Controls 
 
 void Spaceship::ApplyThrust(float force) {
     glm::vec3 forward = orientation * glm::vec3(0.0f, 0.0f, -1.0f);
@@ -23,19 +23,45 @@ void Spaceship::ApplyBrake(float damping) {
     body.velocity *= damping;
 }
 
-// Mouse Controls
+void Spaceship::AddYawInput(float amount) {
+    angularVelocity.y += amount;
+}
 
-void Spaceship::Rotate(float deltaYaw, float deltaPitch) {
-    glm::quat yaw = glm::angleAxis(deltaYaw, glm::vec3(0, 1, 0));
-    glm::quat pitch = glm::angleAxis(deltaPitch, glm::vec3(1, 0, 0));
+void Spaceship::AddPitchInput(float amount) {
+    angularVelocity.x += amount;
+}
 
-    orientation = glm::normalize(yaw * pitch * orientation);
+void Spaceship::AddRollInput(float amount) {
+    angularVelocity.z += amount;
 }
 
 /// Physics
 
 void Spaceship::Update(float deltaTime) {
     body.integrate(deltaTime);
+
+    const float angularDamping = 4.0f;
+    angularVelocity *= exp(-angularDamping * deltaTime);
+    
+    float speed = glm::length(body.velocity);
+    //float authority = ControlAuthority(body);
+    float authority = glm::clamp(speed / 5.0f, 0.1f, 1.0f);
+
+    glm::vec3 forward = glm::normalize(orientation * glm::vec3(0, 0, -1));
+    glm::vec3 right = glm::normalize(orientation * glm::vec3(1, 0, 0));
+    glm::vec3 up = glm::normalize(orientation * glm::vec3(0, 1, 0));
+
+    glm::vec3 delta = angularVelocity * authority * deltaTime;
+
+    if (glm::length2(delta) > 0.0f) {
+        glm ::quat dq = 
+            glm::angleAxis(delta.y, up) *
+            glm::angleAxis(delta.x, right ) *
+            glm::angleAxis(delta.z, forward);
+
+        orientation = glm::normalize(dq * orientation);
+    }
+    
 }
 
 // Camera Info

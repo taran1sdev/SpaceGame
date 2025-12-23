@@ -18,7 +18,10 @@ class Spaceship {
         
         void ApplyThrust(float force);
         void ApplyBrake(float damping);
-        void Rotate(float deltaYaw, float deltaPitch);
+        
+        void AddYawInput(float amount);
+        void AddPitchInput(float amount);
+        void AddRollInput(float amount);
 
         void Update(float deltaTime);
 
@@ -33,7 +36,9 @@ class Spaceship {
     private:
         Mesh mesh;
         
-        glm::quat orientation;
+        glm::quat orientation{1,0,0,0};
+
+        glm::vec3 angularVelocity{0.0f};
         
         glm::mat4 GetModelMatrix() const;       
 };

@@ -8,7 +8,7 @@
 
 Camera::Camera()
 {
-    position = glm::vec3(0.0f, 0.0f, 40.0f);
+    position = glm::vec3(0.0f, 0.0f, 200.0f);
 
     fov = 60.0f;
     aspect = 16.0f / 9.0f;
@@ -41,23 +41,18 @@ glm::mat4 Camera::getViewMatrix() const {
     );
 }
 
-void Camera::Follow(const Spaceship& ship, float deltaTime) {
-    glm::vec3 shipPos = ship.GetPosition();
-    glm::quat shipRot = ship.GetOrientation();
+void Camera::Follow(const Spaceship& ship)
+{
+    const glm::vec3 shipPos = ship.GetPosition();
+    const glm::quat shipRot = ship.GetOrientation();
 
-    glm::vec3 shipUp = shipRot * glm::vec3(0, 1, 0);
-    glm::vec3 shipBack = shipRot * glm::vec3(0, 0, 1);
+    // Rotate local offset into world space
+    const glm::vec3 worldOffset = shipRot * localOffset;
 
-    glm::vec3 camPos = 
-       shipPos + 
-       shipUp * followHeight +
-       shipBack * followDistance;
+    position = shipPos + worldOffset;
+    target   = shipPos;
 
-    float lerpFactor = 1.0f - glm::exp(-smoothing * deltaTime);
-    position = glm::mix(position, camPos, lerpFactor);
-
-    target = shipPos;
-    up = shipUp; 
+    up = shipRot * glm::vec3(0, 1, 0);
 }
 
 glm::mat4 Camera::getProjectionMatrix() const {
